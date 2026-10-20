@@ -55,13 +55,14 @@ jobs:
 
       - name: Mercado (GD por município)
         id: merc
+        if: always()
         env:
           FORCAR: ${{ inputs.forcar }}
         run: |
           if [ "$FORCAR" = "true" ]; then python3 mercado_gd.py --forcar; else python3 mercado_gd.py; fi
 
       - name: Publicar mercado
-        if: steps.merc.outputs.novo == 'true'
+        if: always() && steps.merc.outputs.novo == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
