@@ -41,6 +41,15 @@ O cadastro descobre sozinho as distribuidoras novas.
 - **Conteúdo de cada tarifa:** resolução, vigência, subgrupo, modalidade, classe, subclasse, detalhe (ex.: SCEE), posto e unidade, com TUSD, TE e Fio B em R$/MWh ou R$/kW, sem tributos.
 - **Conteúdo das bandeiras:** mês, cor e adicional em R$/MWh.
 
+## Mercado
+- **`mercado_gd.py`** roda junto com as tarifas, todo dia, mas só trabalha quando a ANEEL publica uma relação de GD nova (mensal).
+  - Soma, por município das UFs do config.json: usinas, kW, classe, porte, modalidade, ano de conexão e últimos 12 meses.
+  - Publica na release `mercado` (`mercado_gd.json`).
+- **`processa.py`** (BDGD) também gera `mercado.json` dentro do `pacote.zip` de cada distribuidora:
+  - consumidores por município e classe, com e sem GD;
+  - lista de prospecção: Grupo A sem GD e BT sem GD com 12 MWh/ano ou mais, com localização, bairro, CEP, CNAE, classe, demanda e consumo anual.
+  - A BDGD não traz nome nem documento.
+
 ## Potência da GD
 A potência de cada GD vem da **relação de empreendimentos de GD da ANEEL** (dados abertos, atualizada todo mês), ligada à BDGD pelo código CEG (`GD.UF.xxx.xxx.xxx`).
 - O campo `POT_INST` da BDGD não é confiável. A Enel CE, por exemplo, não grava kW nele: uma usina de 15 kW aparece como 1,258.

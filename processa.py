@@ -79,6 +79,30 @@ def csv_de(gdb, camada, onde=None, campos=None, xy=False, pasta='.'):
     return list(csv.DictReader(open(out, encoding='utf-8')))
 
 
+def csv_iter(gdb, camada, onde=None, campos=None, xy=False, pasta='.'):
+    """Como csv_de, mas linha a linha (tabelas grandes, como os consumidores BT)."""
+    out = os.path.join(pasta, camada + '.csv')
+    a = ['-f', 'CSV', out, gdb, camada]
+    if onde:
+        a += ['-where', onde]
+    if campos:
+        a += ['-select', ','.join(campos)]
+    if xy:
+        a += ['-lco', 'GEOMETRY=AS_XY']
+    ogr(*a)
+    with open(out, encoding='utf-8') as f:
+        yield from csv.DictReader(f)
+    os.remove(out)
+
+
+MERC_BT_MIN_KWH = 12000      # prospecção na BT: consumo de pelo menos 1.000 kWh/mês (12 MWh/ano) e sem GD
+
+
+def tem_gd(ceg):
+    c = (ceg or '').strip()
+    return bool(c) and not c.endswith('000.000.000')
+
+
 def num(v):
     try:
         return float(v)
@@ -135,11 +159,49 @@ def processa(dist, d, gdb, item, saida, gd_arquivo=None):
     trs = csv_de(gdb, 'UNTRMT', em, ['COD_ID', 'POT_NOM', 'CTMT', 'POSTO', 'TIP_TRAFO', 'MUN', 'SIT_ATIV'], xy=True, pasta=tmp)
     log(len(trs), 'transformadores; consumidores BT')
     nuc, ene = Counter(), Counter()
-    for r in csv_de(gdb, 'UCBT_tab', em, ['UNI_TR_MT', 'SIT_ATIV'] + [f'ENE_{i:02d}' for i in range(1, 13)], pasta=tmp):
+    # mercado: consumidores por município e classe (com e sem GD) e os grandes consumidores sem GD (prospecção)
+    merc = defaultdict(lambda: {'bt': defaultdict(lambda: [0, 0]), 'a': [0, 0]})
+    prosp = []
+    campos_uc = ['PN_CON', 'UNI_TR_MT', 'CTMT', 'MUN', 'CEG_GD', 'BRR', 'CEP', 'CLAS_SUB', 'CNAE', 'FAS_CON', 'GRU_TAR', 'SIT_ATIV']
+    for r in csv_iter(gdb, 'UCBT_tab', em, campos_uc + [f'ENE_{i:02d}' for i in range(1, 13)], pasta=tmp):
         if r['SIT_ATIV'] != 'AT':
             continue
+        e = sum(num(r[f'ENE_{i:02d}']) for i in range(1, 13))
         nuc[r['UNI_TR_MT']] += 1
-        ene[r['UNI_TR_MT']] += sum(num(r[f'ENE_{i:02d}']) for i in range(1, 13))
+        ene[r['UNI_TR_MT']] += e
+        cls = (r['CLAS_SUB'] or '—')[:2]
+        g = tem_gd(r['CEG_GD'])
+        c = merc[r['MUN']]['bt'][cls]
+        c[0] += 1
+        c[1] += g
+        if not g and e >= MERC_BT_MIN_KWH and cls != 'IP':
+            prosp.append({'t': 'B', 'pn': r['PN_CON'], 'mun': r['MUN'], 'brr': r['BRR'].strip()[:60], 'cep': r['CEP'].strip()[:9], 'cnae': r['CNAE'].strip()[:9],
+                          'cls': r['CLAS_SUB'].strip()[:5], 'gru': r['GRU_TAR'].strip()[:4], 'fas': r['FAS_CON'].strip()[:4], 'dem': None,
+                          'mwh': round(e / 1000, 1), 'ct': r['CTMT'], 'tr': r['UNI_TR_MT']})
+    log('consumidores do Grupo A')
+    for r in csv_iter(gdb, 'UCMT_tab', em, campos_uc[:1] + campos_uc[2:] + ['DEM_CONT'] + [f'ENE_{i:02d}' for i in range(1, 13)], pasta=tmp):
+        if r['SIT_ATIV'] != 'AT':
+            continue
+        g = tem_gd(r['CEG_GD'])
+        merc[r['MUN']]['a'][0] += 1
+        merc[r['MUN']]['a'][1] += g
+        if not g:
+            prosp.append({'t': 'A', 'pn': r['PN_CON'], 'mun': r['MUN'], 'brr': r['BRR'].strip()[:60], 'cep': r['CEP'].strip()[:9], 'cnae': r['CNAE'].strip()[:9],
+                          'cls': r['CLAS_SUB'].strip()[:5], 'gru': r['GRU_TAR'].strip()[:4], 'fas': r['FAS_CON'].strip()[:4], 'dem': round(num(r['DEM_CONT']), 1),
+                          'mwh': round(sum(num(r[f'ENE_{i:02d}']) for i in range(1, 13)) / 1000, 1), 'ct': r['CTMT'], 'tr': None})
+    log('localização dos', len(prosp), 'consumidores da prospecção')
+    xy = {}
+    precisa = {p['pn'] for p in prosp}
+    for r in csv_iter(gdb, 'PONNOT', em, ['COD_ID'], xy=True, pasta=tmp):
+        if r['COD_ID'] in precisa:
+            xy[r['COD_ID']] = (round(num(r['Y']), 6), round(num(r['X']), 6))
+    for p in prosp:
+        p['lat'], p['lon'] = xy.get(p.pop('pn'), (None, None))
+    prosp = [p for p in prosp if p['lat']]
+    prosp.sort(key=lambda p: -p['mwh'])
+    mercado = {'municipios': {m: {'bt': {k: {'n': v[0], 'gd': v[1]} for k, v in sorted(x['bt'].items())}, 'a': {'n': x['a'][0], 'gd': x['a'][1]}}
+                              for m, x in merc.items()},
+               'prospeccao': prosp, 'criterio': f'sem GD; Grupo A todos; BT com consumo de pelo menos {MERC_BT_MIN_KWH // 1000} MWh/ano (exceto iluminação pública)'}
     log('geração distribuída')
     pot_ceg = lista_gd([d['uf']], gd_arquivo)
     gdt, ngdt, gdc, ngdc = Counter(), Counter(), Counter(), Counter()
@@ -229,11 +291,11 @@ def processa(dist, d, gdb, item, saida, gd_arquivo=None):
             'municipios': d['municipios'], 'bbox': bbox,
             'contagens': {'trafos': len(trafos), 'segmentos_mt': len(feats), 'alimentadores': len(alims), 'subestacoes': len(subs),
                           'gd_unidades': sum(ngdc.values()), 'gd_kw': round(sum(gdc.values())), 'gd_descartadas': descartadas,
-                          'gd_pela_relacao_aneel': pela_lista},
+                          'gd_pela_relacao_aneel': pela_lista, 'prospeccao': len(prosp)},
             'regras_gd': REGRAS_GD, 'fonte': 'ANEEL – Base de Dados Geográfica da Distribuidora (BDGD), licença ODbL'}
     os.makedirs(saida, exist_ok=True)
     arquivos = {'meta.json': meta, 'trafos.json': trafos, 'alimentadores.json': alims, 'subestacoes.json': list(subs.values()),
-                }
+                'mercado.json': mercado}
     with zipfile.ZipFile(os.path.join(saida, 'pacote.zip'), 'w', zipfile.ZIP_DEFLATED) as z:
         for n, d in arquivos.items():
             z.writestr(n, json.dumps(d, ensure_ascii=False, separators=(',', ':')))

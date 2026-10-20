@@ -1,7 +1,8 @@
-name: Tarifas e bandeiras
+name: Tarifas, bandeiras e mercado
 
 # Todo dia às 09:41 (UTC): baixa dos dados abertos da ANEEL as tarifas homologadas, o componente Fio B e as bandeiras,
 # filtra as distribuidoras do config.json (sig_aneel) e, se algo mudou, atualiza a release "tarifas" (tarifas.json).
+# Também: relação de GD da ANEEL por município (mensal) → release "mercado" (mercado_gd.json), só quando a ANEEL publica outra.
 on:
   schedule:
     - cron: '41 9 * * *'
@@ -50,6 +51,28 @@ jobs:
           git config user.email "bdgd-bot@users.noreply.github.com"
           git add tarifas_hash.txt
           git commit -m "Tarifas: $(cut -c1-16 tarifas_hash.txt)" || true
+          git pull --rebase origin main && git push
+
+      - name: Mercado (GD por município)
+        id: merc
+        env:
+          FORCAR: ${{ inputs.forcar }}
+        run: |
+          if [ "$FORCAR" = "true" ]; then python3 mercado_gd.py --forcar; else python3 mercado_gd.py; fi
+
+      - name: Publicar mercado
+        if: steps.merc.outputs.novo == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          gh release view mercado >/dev/null 2>&1 || gh release create mercado --latest=false --title "Mercado de GD por município (ANEEL)" \
+            --notes "mercado_gd.json: usinas de geração distribuída por município (classe, porte, modalidade, ano), das UFs do config.json. Fonte: relação de empreendimentos de GD da ANEEL."
+          gh release upload mercado saida/mercado_gd.json --clobber
+          git config user.name "bdgd-bot"
+          git config user.email "bdgd-bot@users.noreply.github.com"
+          git add mercado_hash.txt
+          git commit -m "Mercado: $(cut -c1-16 mercado_hash.txt)" || true
           git pull --rebase origin main && git push
 
       - name: Manter o agendamento ativo
