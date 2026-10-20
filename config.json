@@ -23,7 +23,8 @@
         "2408102": "Natal",
         "2403251": "Parnamirim"
       },
-      "pot_inst_confiavel": true
+      "pot_inst_confiavel": true,
+      "sig_aneel": "COSERN"
     },
     "enel-ce": {
       "nome": "Enel CE",
@@ -38,7 +39,8 @@
         "2311504": "Quixeré",
         "2304400": "Fortaleza"
       },
-      "pot_inst_confiavel": false
+      "pot_inst_confiavel": false,
+      "sig_aneel": "ENEL CE"
     }
   },
   "margem_graus": 0.03,

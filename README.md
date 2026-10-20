@@ -1,4 +1,4 @@
-# BDGD rede – recorte para o cadastro da Guarani Solar
+# BDGD rede – dados da ANEEL para o cadastro da Guarani Solar
 
 Rotina automática que acompanha a **Base de Dados Geográfica da Distribuidora (BDGD)** publicada pela ANEEL. Quando sai uma versão nova de uma das distribuidoras do `config.json`, a rotina gera um pacote leve com a rede dos municípios de interesse.
 
@@ -34,6 +34,13 @@ O cadastro descobre sozinho as distribuidoras novas.
 | `subestacoes.json` | Subestações: código, nome e posição |
 | `mt.ndjson` | Trechos de média tensão simplificados, um por linha: `[alimentador, fases, condutor (ex.: AL4AWG), [[lon, lat], ...]]`. Fica linha a linha para o cadastro importar sem estourar a memória da hospedagem |
 
+## Tarifas e bandeiras (`tarifas.py`, workflow "Tarifas e bandeiras")
+- **Quando roda:** todo dia. Baixa dos dados abertos da ANEEL as tarifas homologadas, o componente **TUSD Fio B** (componentes tarifárias) e o acionamento das **bandeiras**.
+- **Filtro:** só as distribuidoras com `sig_aneel` no `config.json` (sigla da ANEEL: `COSERN`, `ENEL CE`), com vigência a partir de 2023.
+- **Publicação:** só quando algo muda, na release `tarifas` (`tarifas.json`, cerca de 500 kB). O cadastro baixa esse arquivo uma vez por dia.
+- **Conteúdo de cada tarifa:** resolução, vigência, subgrupo, modalidade, classe, subclasse, detalhe (ex.: SCEE), posto e unidade, com TUSD, TE e Fio B em R$/MWh ou R$/kW, sem tributos.
+- **Conteúdo das bandeiras:** mês, cor e adicional em R$/MWh.
+
 ## Potência da GD
 A potência de cada GD vem da **relação de empreendimentos de GD da ANEEL** (dados abertos, atualizada todo mês), ligada à BDGD pelo código CEG (`GD.UF.xxx.xxx.xxx`).
 - O campo `POT_INST` da BDGD não é confiável. A Enel CE, por exemplo, não grava kW nele: uma usina de 15 kW aparece como 1,258.
@@ -49,6 +56,7 @@ sudo apt-get install gdal-bin
 python3 processa.py                                  # todas, só as que mudaram
 python3 processa.py --dist enel-ce --forcar          # uma, mesmo sem novidade
 python3 processa.py --dist cosern --gdb arquivo.gdb --gd-zip gd.zip  # usa arquivos já baixados
+pip install pandas pyarrow && python3 tarifas.py --forcar   # tarifas e bandeiras
 ```
 
 **Fonte:** ANEEL, Base de Dados Geográfica da Distribuidora (BDGD), licença Open Data Commons ODbL. É uma foto anual com finalidade regulatória e não substitui a consulta formal à distribuidora.

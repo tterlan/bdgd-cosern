@@ -1,0 +1,61 @@
+name: Tarifas e bandeiras
+
+# Todo dia às 09:41 (UTC): baixa dos dados abertos da ANEEL as tarifas homologadas, o componente Fio B e as bandeiras,
+# filtra as distribuidoras do config.json (sig_aneel) e, se algo mudou, atualiza a release "tarifas" (tarifas.json).
+on:
+  schedule:
+    - cron: '41 9 * * *'
+  workflow_dispatch:
+    inputs:
+      forcar:
+        description: 'Publicar mesmo sem mudança'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: tarifas
+  cancel-in-progress: false
+
+jobs:
+  tarifas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python
+        run: pip install -q pandas pyarrow
+
+      - name: Processar
+        id: proc
+        env:
+          FORCAR: ${{ inputs.forcar }}
+        run: |
+          if [ "$FORCAR" = "true" ]; then python3 tarifas.py --forcar; else python3 tarifas.py; fi
+
+      - name: Publicar
+        if: steps.proc.outputs.novo == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          gh release view tarifas >/dev/null 2>&1 || gh release create tarifas --latest=false --title "Tarifas e bandeiras (ANEEL)" \
+            --notes "tarifas.json: tarifas homologadas (TUSD, TE e Fio B) das distribuidoras do config.json e bandeiras mês a mês. Fonte: dados abertos da ANEEL."
+          gh release upload tarifas saida/tarifas.json --clobber
+          git config user.name "bdgd-bot"
+          git config user.email "bdgd-bot@users.noreply.github.com"
+          git add tarifas_hash.txt
+          git commit -m "Tarifas: $(cut -c1-16 tarifas_hash.txt)" || true
+          git push
+
+      - name: Manter o agendamento ativo
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/tarifas.yml/enable" || true
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/bdgd.yml/enable" || true
