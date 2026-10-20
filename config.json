@@ -1,24 +1,45 @@
 {
-  "distribuidora": "Cosern",
-  "busca_arcgis": "owner:aneel_aneel AND type:\"File Geodatabase\" AND title:Cosern_40",
-  "municipios": {
-    "2408003": "Mossoró",
-    "2411056": "Tibau",
-    "2404408": "Grossos",
-    "2401107": "Areia Branca",
-    "2401453": "Baraúna",
-    "2413359": "Serra do Mel",
-    "2404309": "Governador Dix-Sept Rosado",
-    "2400208": "Assú",
-    "2404853": "Itajá",
-    "2401008": "Apodi",
-    "2407609": "Messias Targino",
-    "2414605": "Upanema",
-    "2410207": "Portalegre",
-    "2407401": "Martins",
-    "2409332": "Santa Maria",
-    "2408102": "Natal",
-    "2403251": "Parnamirim"
+  "distribuidoras": {
+    "cosern": {
+      "nome": "Neoenergia Cosern",
+      "uf": "RN",
+      "titulo_arcgis": "Cosern_40",
+      "municipios": {
+        "2408003": "Mossoró",
+        "2411056": "Tibau",
+        "2404408": "Grossos",
+        "2401107": "Areia Branca",
+        "2401453": "Baraúna",
+        "2413359": "Serra do Mel",
+        "2404309": "Governador Dix-Sept Rosado",
+        "2400208": "Assú",
+        "2404853": "Itajá",
+        "2401008": "Apodi",
+        "2407609": "Messias Targino",
+        "2414605": "Upanema",
+        "2410207": "Portalegre",
+        "2407401": "Martins",
+        "2409332": "Santa Maria",
+        "2408102": "Natal",
+        "2403251": "Parnamirim"
+      },
+      "pot_inst_confiavel": true
+    },
+    "enel-ce": {
+      "nome": "Enel CE",
+      "uf": "CE",
+      "titulo_arcgis": "Enel_CE_39",
+      "municipios": {
+        "2301109": "Aracati",
+        "2305357": "Icapuí",
+        "2311801": "Russas",
+        "2307601": "Limoeiro do Norte",
+        "2307007": "Jaguaruana",
+        "2311504": "Quixeré",
+        "2304400": "Fortaleza"
+      },
+      "pot_inst_confiavel": false
+    }
   },
   "margem_graus": 0.03,
   "simplificar_graus": 2e-05

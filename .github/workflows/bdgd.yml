@@ -1,12 +1,17 @@
-name: BDGD Cosern
+name: BDGD rede
 
-# Todo dia 5, às 06:17 (UTC): procura BDGD nova da Cosern na ANEEL; se houver, gera o pacote e publica uma release.
-# O cadastro da Guarani Solar baixa releases/latest/download/meta.json e pacote.zip.
+# Todo dia 5, às 06:17 (UTC): procura BDGD nova de cada distribuidora do config.json na ANEEL.
+# Para cada uma que mudou, gera o pacote e atualiza a release de mesmo nome (tag = chave da distribuidora, ex.: cosern).
+# A release "indice" guarda indice.json com a situação de todas; o cadastro da Guarani Solar lê esse arquivo primeiro.
 on:
   schedule:
     - cron: '17 6 5 * *'
   workflow_dispatch:
     inputs:
+      dist:
+        description: 'Só esta distribuidora (ex.: cosern, enel-ce). Vazio = todas'
+        type: string
+        default: ''
       forcar:
         description: 'Reprocessar mesmo sem BDGD nova'
         type: boolean
@@ -23,7 +28,7 @@ concurrency:
 jobs:
   bdgd:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -32,26 +37,50 @@ jobs:
 
       - name: Processar
         id: proc
-        run: python3 processa.py ${{ inputs.forcar && '--forcar' || '' }}
+        env:
+          DIST: ${{ inputs.dist }}
+          FORCAR: ${{ inputs.forcar }}
+        run: |
+          args=()
+          if [ -n "$DIST" ]; then args+=(--dist "$DIST"); fi
+          if [ "$FORCAR" = "true" ]; then args+=(--forcar); fi
+          python3 processa.py "${args[@]}"
 
-      - name: Publicar release
-        if: steps.proc.outputs.novo == 'true'
+      - name: Publicar
+        if: steps.proc.outputs.novos != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          REFERENCIA: ${{ steps.proc.outputs.referencia }}
-          TITULO: ${{ steps.proc.outputs.titulo }}
+          NOVOS: ${{ steps.proc.outputs.novos }}
         run: |
           set -e
-          TAG="rede-${REFERENCIA}-$(date -u +%Y%m%d%H%M)"
-          # primeiro a release; o estado só é gravado depois que ela existe
-          gh release create "$TAG" saida/pacote.zip saida/meta.json --latest \
-            --title "Rede Cosern – BDGD ref. ${REFERENCIA}" \
-            --notes "Recorte de ${TITULO} (ANEEL, licença ODbL) para o cadastro da Guarani Solar."
+          garante() {  # cria a release se ainda não existir
+            gh release view "$1" >/dev/null 2>&1 || gh release create "$1" --latest=false --title "$2" --notes "$3"
+          }
+          for d in $NOVOS; do
+            ref=$(python3 -c "import json,sys; print(json.load(open('saida/'+sys.argv[1]+'/meta.json'))['referencia'])" "$d")
+            nome=$(python3 -c "import json,sys; print(json.load(open('saida/'+sys.argv[1]+'/meta.json'))['nome'])" "$d")
+            garante "$d" "Rede $nome" "Recorte da BDGD (ANEEL, licença ODbL) para o cadastro da Guarani Solar."
+            # pacote antes do meta: quem lê o meta novo já encontra o pacote novo
+            gh release upload "$d" "saida/$d/pacote.zip" --clobber
+            gh release upload "$d" "saida/$d/meta.json" --clobber
+            gh release edit "$d" --title "Rede $nome – BDGD ref. $ref"
+          done
+          garante indice "Índice das redes" "indice.json: distribuidoras publicadas, referência e data de processamento."
+          gh release upload indice saida/indice.json --clobber
+          # o estado só é gravado depois que as releases existem
           git config user.name "bdgd-bot"
           git config user.email "bdgd-bot@users.noreply.github.com"
           git add estado.json
-          git commit -m "BDGD ${TITULO}" || true
+          git commit -m "BDGD: $NOVOS" || true
           git push
+
+      - name: Falhas
+        if: steps.proc.outputs.falhas != ''
+        env:
+          FALHAS: ${{ steps.proc.outputs.falhas }}
+        run: |
+          echo "::error::Não processou: $FALHAS (veja o passo Processar)"
+          exit 1
 
       # O GitHub desliga agendamentos de repositório público após 60 dias sem atividade; a BDGD sai uma vez por ano.
       # Reativar o workflow a cada execução mantém a rotina mensal viva.

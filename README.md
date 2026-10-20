@@ -1,40 +1,54 @@
-# BDGD Cosern – recorte para o cadastro da Guarani Solar
+# BDGD rede – recorte para o cadastro da Guarani Solar
 
-Rotina automática que acompanha a **Base de Dados Geográfica da Distribuidora (BDGD)** publicada pela ANEEL para a Neoenergia Cosern. Quando sai uma versão nova, a rotina gera um pacote leve com a rede da região de atuação da Guarani Solar.
+Rotina automática que acompanha a **Base de Dados Geográfica da Distribuidora (BDGD)** publicada pela ANEEL. Quando sai uma versão nova de uma das distribuidoras do `config.json`, a rotina gera um pacote leve com a rede dos municípios de interesse.
+
+## Distribuidoras e municípios
+Ficam em `config.json`, em `distribuidoras`. Cada uma tem:
+- `nome` e `uf`;
+- `titulo_arcgis`: começo do nome do arquivo na ANEEL. Exemplos: `Cosern_40` e `Enel_CE_39`; o número é o código da distribuidora na ANEEL;
+- `municipios`: código IBGE e nome.
+
+**Para acrescentar uma distribuidora ou um município:**
+1. edite o `config.json`;
+2. rode **Actions → BDGD rede → Run workflow**, informando a distribuidora e marcando **forcar**.
+
+O cadastro descobre sozinho as distribuidoras novas.
 
 ## O que a rotina faz
-- **Quando roda:** todo dia 5 de cada mês, pelo GitHub Actions (`.github/workflows/bdgd.yml`). Também dá para rodar à mão em **Actions → BDGD Cosern → Run workflow**.
-- **Como sabe que há base nova:** procura no ArcGIS da ANEEL o File Geodatabase mais recente da Cosern e compara com o `estado.json`.
-- **Se for nova:**
-  1. baixa o arquivo, de cerca de 470 MB;
-  2. recorta os municípios do `config.json` (transformadores e GD dos municípios; rede de MT inteira dos alimentadores que os atendem);
-  3. gera `pacote.zip` e `meta.json` e publica numa **release**.
-- **O cadastro** consulta `releases/latest/download/meta.json` e baixa o `pacote.zip` quando a referência muda.
+- **Quando roda:** todo dia 5, pelo GitHub Actions (`.github/workflows/bdgd.yml`). Também dá para rodar à mão.
+- **Para cada distribuidora:**
+  1. procura no ArcGIS da ANEEL o File Geodatabase mais recente e compara com o `estado.json`;
+  2. se for novo, baixa o arquivo (de 0,5 a 1 GB);
+  3. recorta transformadores e GD dos municípios e a rede de MT inteira dos alimentadores que os atendem;
+  4. atualiza a **release com o nome da distribuidora** (`cosern`, `enel-ce`…) com `pacote.zip` e `meta.json`.
+- **Índice:** a release `indice` guarda `indice.json` com todas as distribuidoras publicadas, a referência e a data de processamento.
+- **No cadastro:** ele lê `releases/download/indice/indice.json` e baixa `releases/download/<distribuidora>/pacote.zip` quando muda.
+- **Falhas:** uma distribuidora com problema não impede as outras. O passo "Falhas" deixa a execução vermelha para avisar.
 
-## O que vai no pacote
+## O que vai no pacote (versão 2)
 | Arquivo | Conteúdo |
 |---|---|
-| `meta.json` | Referência da BDGD, item da ANEEL, data do processamento, municípios, contagens e regra de limpeza da GD |
-| `trafos.json` | Transformadores: posição, kVA, GD ativa ligada (kW), nº de GD, consumidores BT, demanda média, alimentador, município |
+| `meta.json` | Distribuidora, referência da BDGD, item da ANEEL, data do processamento, municípios, contagens e regra de limpeza da GD |
+| `trafos.json` | Transformadores: posição, kVA, GD ativa ligada (kW), nº de GD, consumidores BT, demanda média, alimentador e município |
 | `alimentadores.json` | Alimentadores: nome, subestação, energia anual, GD ligada, transformadores e kVA |
 | `subestacoes.json` | Subestações: código, nome e posição |
-| `mt.ndjson` | Trechos de média tensão simplificados, um por linha: `[alimentador, fases, condutor (ex.: AL4AWG), [[lon, lat], ...]]`. Linha a linha para o cadastro importar sem estourar a memória da hospedagem |
+| `mt.ndjson` | Trechos de média tensão simplificados, um por linha: `[alimentador, fases, condutor (ex.: AL4AWG), [[lon, lat], ...]]`. Fica linha a linha para o cadastro importar sem estourar a memória da hospedagem |
 
-## Limpeza da GD
-O campo de potência da BDGD (`POT_INST`) mistura unidades. Regras aplicadas:
-- **BT com valor até 1:** é MW, multiplica por 1000.
-- **BT acima de 75 kW:** descartado.
-- **MT acima de 5.000 kW:** descartado.
-- Só unidades ativas entram.
-
-## Trocar a região
-Edite `municipios` em `config.json` (código IBGE: nome) e rode a rotina com **forcar**.
+## Potência da GD
+A potência de cada GD vem da **relação de empreendimentos de GD da ANEEL** (dados abertos, atualizada todo mês), ligada à BDGD pelo código CEG (`GD.UF.xxx.xxx.xxx`).
+- O campo `POT_INST` da BDGD não é confiável. A Enel CE, por exemplo, não grava kW nele: uma usina de 15 kW aparece como 1,258.
+- **GD sem o CEG na relação:**
+  - se a distribuidora tem `pot_inst_confiavel: true` no `config.json` (Cosern), usa o `POT_INST` limpo: BT até 1 é MW (×1000); BT acima de 75 kW e MT acima de 5.000 kW são descartados;
+  - senão, a unidade é descartada.
+- Só entram unidades ativas.
+- A relação (cerca de 110 MB) é baixada uma vez por execução.
 
 ## Rodar localmente
 ```
 sudo apt-get install gdal-bin
-python3 processa.py --forcar            # baixa da ANEEL
-python3 processa.py --forcar --gdb arquivo.gdb   # usa um .gdb já baixado
+python3 processa.py                                  # todas, só as que mudaram
+python3 processa.py --dist enel-ce --forcar          # uma, mesmo sem novidade
+python3 processa.py --dist cosern --gdb arquivo.gdb --gd-zip gd.zip  # usa arquivos já baixados
 ```
 
-Fonte: ANEEL, Base de Dados Geográfica da Distribuidora (BDGD), licença Open Data Commons ODbL. É uma foto anual com finalidade regulatória: não substitui a consulta formal à distribuidora.
+**Fonte:** ANEEL, Base de Dados Geográfica da Distribuidora (BDGD), licença Open Data Commons ODbL. É uma foto anual com finalidade regulatória e não substitui a consulta formal à distribuidora.
