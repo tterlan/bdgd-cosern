@@ -7,7 +7,7 @@ Rotina automática que acompanha a **Base de Dados Geográfica da Distribuidora 
 - **Como sabe que há base nova:** procura no ArcGIS da ANEEL o File Geodatabase mais recente da Cosern e compara com o `estado.json`.
 - **Se for nova:**
   1. baixa o arquivo, de cerca de 470 MB;
-  2. recorta os municípios do `config.json`;
+  2. recorta os municípios do `config.json` (transformadores e GD dos municípios; rede de MT inteira dos alimentadores que os atendem);
   3. gera `pacote.zip` e `meta.json` e publica numa **release**.
 - **O cadastro** consulta `releases/latest/download/meta.json` e baixa o `pacote.zip` quando a referência muda.
 
@@ -18,7 +18,7 @@ Rotina automática que acompanha a **Base de Dados Geográfica da Distribuidora 
 | `trafos.json` | Transformadores: posição, kVA, GD ativa ligada (kW), nº de GD, consumidores BT, demanda média, alimentador, município |
 | `alimentadores.json` | Alimentadores: nome, subestação, energia anual, GD ligada, transformadores e kVA |
 | `subestacoes.json` | Subestações: código, nome e posição |
-| `mt.geojson` | Trechos de média tensão simplificados: alimentador (`c`), fases (`f`) e condutor (`k`, ex.: AL4AWG) |
+| `mt.ndjson` | Trechos de média tensão simplificados, um por linha: `[alimentador, fases, condutor (ex.: AL4AWG), [[lon, lat], ...]]`. Linha a linha para o cadastro importar sem estourar a memória da hospedagem |
 
 ## Limpeza da GD
 O campo de potência da BDGD (`POT_INST`) mistura unidades. Regras aplicadas:

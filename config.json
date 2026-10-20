@@ -8,8 +8,18 @@
     "2401107": "Areia Branca",
     "2401453": "Baraúna",
     "2413359": "Serra do Mel",
-    "2404309": "Governador Dix-Sept Rosado"
+    "2404309": "Governador Dix-Sept Rosado",
+    "2400208": "Assú",
+    "2404853": "Itajá",
+    "2401008": "Apodi",
+    "2407609": "Messias Targino",
+    "2414605": "Upanema",
+    "2410207": "Portalegre",
+    "2407401": "Martins",
+    "2409332": "Santa Maria",
+    "2408102": "Natal",
+    "2403251": "Parnamirim"
   },
   "margem_graus": 0.03,
-  "simplificar_graus": 0.00002
+  "simplificar_graus": 2e-05
 }

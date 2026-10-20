@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  actions: write   # para reativar o próprio agendamento (ver o último passo)
 
 concurrency:
   group: bdgd
@@ -37,14 +38,25 @@ jobs:
         if: steps.proc.outputs.novo == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          REFERENCIA: ${{ steps.proc.outputs.referencia }}
+          TITULO: ${{ steps.proc.outputs.titulo }}
         run: |
           set -e
-          TAG="rede-${{ steps.proc.outputs.referencia }}-$(date -u +%Y%m%d%H%M)"
+          TAG="rede-${REFERENCIA}-$(date -u +%Y%m%d%H%M)"
+          # primeiro a release; o estado só é gravado depois que ela existe
+          gh release create "$TAG" saida/pacote.zip saida/meta.json --latest \
+            --title "Rede Cosern – BDGD ref. ${REFERENCIA}" \
+            --notes "Recorte de ${TITULO} (ANEEL, licença ODbL) para o cadastro da Guarani Solar."
           git config user.name "bdgd-bot"
           git config user.email "bdgd-bot@users.noreply.github.com"
           git add estado.json
-          git commit -m "BDGD ${{ steps.proc.outputs.titulo }}" || true
+          git commit -m "BDGD ${TITULO}" || true
           git push
-          gh release create "$TAG" saida/pacote.zip saida/meta.json --latest \
-            --title "Rede Cosern – BDGD ref. ${{ steps.proc.outputs.referencia }}" \
-            --notes "Recorte de ${{ steps.proc.outputs.titulo }} (ANEEL, licença ODbL) para o cadastro da Guarani Solar."
+
+      # O GitHub desliga agendamentos de repositório público após 60 dias sem atividade; a BDGD sai uma vez por ano.
+      # Reativar o workflow a cada execução mantém a rotina mensal viva.
+      - name: Manter o agendamento ativo
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/bdgd.yml/enable" || true

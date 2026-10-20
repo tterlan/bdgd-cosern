@@ -5,7 +5,7 @@ Recorte da BDGD (ANEEL) da Cosern para o cadastro da Guarani Solar.
 1. Procura no ArcGIS da ANEEL o File Geodatabase mais recente da Cosern.
 2. Se for o mesmo já publicado (estado.json), para (a não ser com --forcar).
 3. Baixa, recorta os municípios do config.json e gera um pacote leve:
-   meta.json, trafos.json, alimentadores.json, subestacoes.json, mt.geojson -> saida/pacote.zip
+   meta.json, trafos.json, alimentadores.json, subestacoes.json, mt.ndjson -> saida/pacote.zip
    Transformadores com potência, GD já ligada (limpa), consumidores e energia; rede de MT simplificada.
 
 Uso: python3 processa.py [--forcar] [--gdb caminho.gdb] [--saida pasta]
@@ -16,7 +16,7 @@ from collections import Counter, defaultdict
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 CFG = json.load(open(os.path.join(AQUI, 'config.json'), encoding='utf-8'))
-VERSAO_PACOTE = 1
+VERSAO_PACOTE = 2  # 2: rede de MT em mt.ndjson (uma linha por trecho), para o cadastro importar sem carregar tudo na memória
 REGRAS_GD = ('POT_INST da BDGD mistura unidades: na BT, valor até 1 é tratado como MW (× 1000); BT acima de 75 kW é descartado; '
              'MT acima de 5.000 kW é descartado; só unidades ativas (SIT_ATIV = AT).')
 
@@ -137,14 +137,20 @@ def processa(gdb, item, saida):
     cts = {r['COD_ID']: r for r in csv_de(gdb, 'CTMT', None, ['COD_ID', 'NOME', 'SUB', 'TEN_OPE'] + [f'ENE_{i:02d}' for i in range(1, 13)], pasta=tmp)}
     subs = {}
     out_sub = os.path.join(tmp, 'sub.geojson')
-    ogr('-f', 'GeoJSON', out_sub, gdb, 'SUB', '-spat', *map(str, bbox), '-dialect', 'sqlite', '-sql', 'SELECT COD_ID, NOME, ST_Centroid(Shape) AS g FROM SUB')
+    # alimentadores que atendem os municípios escolhidos (pelos transformadores e pelas GD); a rede de MT vem só deles,
+    # o que evita puxar o estado inteiro quando os municípios ficam longe uns dos outros (ex.: Mossoró e Natal)
+    cts_sel = sorted(c for c in set(kva_ct) | set(gdc) if c in cts)
+    subs_sel = {cts[c]['SUB'] for c in cts_sel}
+    ogr('-f', 'GeoJSON', out_sub, gdb, 'SUB', '-dialect', 'sqlite', '-sql', 'SELECT COD_ID, NOME, ST_Centroid(Shape) AS g FROM SUB')
     for f in json.load(open(out_sub, encoding='utf-8'))['features']:
+        if f['properties']['COD_ID'] not in subs_sel or not f.get('geometry'):
+            continue
         c = f['geometry']['coordinates']
         subs[f['properties']['COD_ID']] = {'cod': f['properties']['COD_ID'], 'nome': f['properties']['NOME'], 'lat': round(c[1], 6), 'lon': round(c[0], 6)}
-    log('rede de MT', bbox)
+    log('rede de MT de', len(cts_sel), 'alimentadores')
     cond = {r['COD_ID']: r['R_REGUL'] for r in csv_de(gdb, 'SEGCON', None, ['COD_ID', 'R_REGUL'], pasta=tmp)}
     out_mt = os.path.join(tmp, 'mt.geojson')
-    ogr('-f', 'GeoJSON', out_mt, gdb, 'SSDMT', '-spat', *map(str, bbox), '-select', 'CTMT,FAS_CON,TIP_CND',
+    ogr('-f', 'GeoJSON', out_mt, gdb, 'SSDMT', '-where', 'CTMT IN (' + ','.join("'" + c.replace("'", "''") + "'" for c in cts_sel) + ')', '-select', 'CTMT,FAS_CON,TIP_CND',
         '-simplify', str(CFG['simplificar_graus']), '-explodecollections', '-lco', 'COORDINATE_PRECISION=6')
     mt = json.load(open(out_mt, encoding='utf-8'))
     feats, ct_usados = [], set()
@@ -172,10 +178,13 @@ def processa(gdb, item, saida):
             'regras_gd': REGRAS_GD, 'fonte': 'ANEEL – Base de Dados Geográfica da Distribuidora (BDGD), licença ODbL'}
     os.makedirs(saida, exist_ok=True)
     arquivos = {'meta.json': meta, 'trafos.json': trafos, 'alimentadores.json': alims, 'subestacoes.json': list(subs.values()),
-                'mt.geojson': {'type': 'FeatureCollection', 'features': feats}}
+                }
     with zipfile.ZipFile(os.path.join(saida, 'pacote.zip'), 'w', zipfile.ZIP_DEFLATED) as z:
         for n, d in arquivos.items():
             z.writestr(n, json.dumps(d, ensure_ascii=False, separators=(',', ':')))
+        # uma linha por trecho: [alimentador, fases, condutor, [[lon, lat], ...]]
+        z.writestr('mt.ndjson', ''.join(json.dumps([f['properties']['c'], f['properties']['f'], f['properties']['k'], f['geometry']['coordinates']],
+                                                   ensure_ascii=False, separators=(',', ':')) + '\n' for f in feats))
     json.dump(meta, open(os.path.join(saida, 'meta.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     shutil.rmtree(tmp, ignore_errors=True)
     log('pacote', round(os.path.getsize(os.path.join(saida, 'pacote.zip')) / 1e6, 2), 'MB', meta['contagens'])
@@ -204,7 +213,7 @@ def main():
     json.dump({'item_id': item['item_id'], 'titulo': item['titulo'], 'referencia': item['referencia'], 'processado_em': meta['processado_em']},
               open(estado_f, 'w'), ensure_ascii=False, indent=1)
     if os.environ.get('GITHUB_OUTPUT'):
-        open(os.environ['GITHUB_OUTPUT'], 'a').write(f"novo=true\nreferencia={item['referencia']}\ntitulo={item['titulo']}\n")
+        open(os.environ['GITHUB_OUTPUT'], 'a').write(f"novo=true\nreferencia={re.sub(r'[^0-9-]', '', item['referencia'])}\ntitulo={re.sub(r'[^A-Za-z0-9_.-]', '', item['titulo'])}\n")
     shutil.rmtree(pasta, ignore_errors=True)
 
 
