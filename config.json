@@ -1,0 +1,15 @@
+{
+  "distribuidora": "Cosern",
+  "busca_arcgis": "owner:aneel_aneel AND type:\"File Geodatabase\" AND title:Cosern_40",
+  "municipios": {
+    "2408003": "Mossoró",
+    "2411056": "Tibau",
+    "2404408": "Grossos",
+    "2401107": "Areia Branca",
+    "2401453": "Baraúna",
+    "2413359": "Serra do Mel",
+    "2404309": "Governador Dix-Sept Rosado"
+  },
+  "margem_graus": 0.03,
+  "simplificar_graus": 0.00002
+}

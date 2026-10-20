@@ -1,0 +1,50 @@
+name: BDGD Cosern
+
+# Todo dia 5, às 06:17 (UTC): procura BDGD nova da Cosern na ANEEL; se houver, gera o pacote e publica uma release.
+# O cadastro da Guarani Solar baixa releases/latest/download/meta.json e pacote.zip.
+on:
+  schedule:
+    - cron: '17 6 5 * *'
+  workflow_dispatch:
+    inputs:
+      forcar:
+        description: 'Reprocessar mesmo sem BDGD nova'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bdgd
+  cancel-in-progress: false
+
+jobs:
+  bdgd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: GDAL
+        run: sudo apt-get update -q && sudo apt-get install -y -q gdal-bin
+
+      - name: Processar
+        id: proc
+        run: python3 processa.py ${{ inputs.forcar && '--forcar' || '' }}
+
+      - name: Publicar release
+        if: steps.proc.outputs.novo == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG="rede-${{ steps.proc.outputs.referencia }}-$(date -u +%Y%m%d%H%M)"
+          git config user.name "bdgd-bot"
+          git config user.email "bdgd-bot@users.noreply.github.com"
+          git add estado.json
+          git commit -m "BDGD ${{ steps.proc.outputs.titulo }}" || true
+          git push
+          gh release create "$TAG" saida/pacote.zip saida/meta.json --latest \
+            --title "Rede Cosern – BDGD ref. ${{ steps.proc.outputs.referencia }}" \
+            --notes "Recorte de ${{ steps.proc.outputs.titulo }} (ANEEL, licença ODbL) para o cadastro da Guarani Solar."
