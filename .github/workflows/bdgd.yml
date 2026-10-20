@@ -72,7 +72,7 @@ jobs:
           git config user.email "bdgd-bot@users.noreply.github.com"
           git add estado.json
           git commit -m "BDGD: $NOVOS" || true
-          git push
+          git pull --rebase origin main && git push
 
       - name: Falhas
         if: steps.proc.outputs.falhas != ''
