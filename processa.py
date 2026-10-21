@@ -6,8 +6,10 @@ Para cada distribuidora:
 1. Procura no ArcGIS da ANEEL o File Geodatabase mais recente.
 2. Se for o mesmo já publicado (estado.json), pula (a não ser com --forcar).
 3. Baixa, recorta os municípios e gera um pacote leve em saida/<distribuidora>/:
-   meta.json, trafos.json, alimentadores.json, subestacoes.json, mt.ndjson -> pacote.zip
+   meta.json, trafos.json, alimentadores.json, subestacoes.json, mercado.json, gdmt.json, mt.ndjson -> pacote.zip
    Transformadores com potência, GD já ligada (limpa), consumidores e energia; rede de MT simplificada.
+   gdmt.json: minigerações em MT (local, kW, alimentador, CEG) e o transformador particular mais próximo; o transformador
+   ganha 'gdmt'/'ngdmt'. Arquivos novos no pacote não mudam a versão: o cadastro antigo ignora o que não conhece.
 Depois grava saida/indice.json com a situação de todas.
 
 Uso: python3 processa.py [--dist cosern] [--forcar] [--gdb caminho.gdb] [--saida pasta]
@@ -118,6 +120,34 @@ def gd_mt(v):
     return v if 0 < v <= 5000 else None
 
 
+GDMT_RAIO_M = 150   # minigeração em MT: transformador particular (sem consumidor de BT) até esta distância do ponto de conexão
+
+
+def liga_gdmt(gdmt, trafos):
+    """Liga cada minigeração em MT ao transformador mais próximo sem consumidor de BT (o particular da usina ou do cliente do
+    Grupo A), até GDMT_RAIO_M. O transformador ganha 'gdmt' (kW) e 'ngdmt'; a minigeração, 'tr' (código) e 'tr_m' (distância)."""
+    grade = defaultdict(list)   # células de ~0,005° (~550 m) só com os transformadores sem BT
+    for t in trafos:
+        t['gdmt'], t['ngdmt'] = 0.0, 0
+        if t['nuc'] == 0:
+            grade[(int(t['lat'] // 0.005), int(t['lon'] // 0.005))].append(t)
+    for g in gdmt:
+        g['tr'], g['tr_m'] = None, None
+        ci, cj = int(g['lat'] // 0.005), int(g['lon'] // 0.005)
+        kx = 111320 * math.cos(math.radians(g['lat']))
+        melhor = None
+        for i in (ci - 1, ci, ci + 1):
+            for j in (cj - 1, cj, cj + 1):
+                for t in grade.get((i, j), ()):
+                    dm = math.hypot((t['lon'] - g['lon']) * kx, (t['lat'] - g['lat']) * 110574)
+                    if dm <= GDMT_RAIO_M and (melhor is None or dm < melhor[0]):
+                        melhor = (dm, t)
+        if melhor:
+            g['tr'], g['tr_m'] = melhor[1]['id'], round(melhor[0])
+            melhor[1]['gdmt'] = round(melhor[1]['gdmt'] + g['kw'], 1)
+            melhor[1]['ngdmt'] += 1
+
+
 URL_GD = ('https://dadosabertos.aneel.gov.br/dataset/5e0fafd2-21b9-4d5b-b622-40438d40aba2/resource/'
           'b1bd71e7-d0ad-4214-9053-cbd58e9564a7/download/empreendimento-geracao-distribuida.zip')
 _GD_LISTA = {}
@@ -189,25 +219,13 @@ def processa(dist, d, gdb, item, saida, gd_arquivo=None):
             prosp.append({'t': 'A', 'pn': r['PN_CON'], 'mun': r['MUN'], 'brr': r['BRR'].strip()[:60], 'cep': r['CEP'].strip()[:9], 'cnae': r['CNAE'].strip()[:9],
                           'cls': r['CLAS_SUB'].strip()[:5], 'gru': r['GRU_TAR'].strip()[:4], 'fas': r['FAS_CON'].strip()[:4], 'dem': round(num(r['DEM_CONT']), 1),
                           'mwh': round(sum(num(r[f'ENE_{i:02d}']) for i in range(1, 13)) / 1000, 1), 'ct': r['CTMT'], 'tr': None})
-    log('localização dos', len(prosp), 'consumidores da prospecção')
-    xy = {}
-    precisa = {p['pn'] for p in prosp}
-    for r in csv_iter(gdb, 'PONNOT', em, ['COD_ID'], xy=True, pasta=tmp):
-        if r['COD_ID'] in precisa:
-            xy[r['COD_ID']] = (round(num(r['Y']), 6), round(num(r['X']), 6))
-    for p in prosp:
-        p['lat'], p['lon'] = xy.get(p.pop('pn'), (None, None))
-    prosp = [p for p in prosp if p['lat']]
-    prosp.sort(key=lambda p: -p['mwh'])
-    mercado = {'municipios': {m: {'bt': {k: {'n': v[0], 'gd': v[1]} for k, v in sorted(x['bt'].items())}, 'a': {'n': x['a'][0], 'gd': x['a'][1]}}
-                              for m, x in merc.items()},
-               'prospeccao': prosp, 'criterio': f'sem GD; Grupo A todos; BT com consumo de pelo menos {MERC_BT_MIN_KWH // 1000} MWh/ano (exceto iluminação pública)'}
     log('geração distribuída')
     pot_ceg = lista_gd([d['uf']], gd_arquivo)
     gdt, ngdt, gdc, ngdc = Counter(), Counter(), Counter(), Counter()
     descartadas, pela_lista = 0, 0
+    gdmt = []   # minigerações em MT: [ponto de conexão, kW, alimentador, CEG]; a BDGD não as liga a um transformador
     for camada, regra, chave in (('UGBT_tab', gd_bt, 'UNI_TR_MT'), ('UGMT_tab', gd_mt, None)):
-        campos = ['CTMT', 'POT_INST', 'SIT_ATIV', 'CEG_GD'] + ([chave] if chave else [])
+        campos = ['CTMT', 'POT_INST', 'SIT_ATIV', 'CEG_GD'] + ([chave] if chave else ['PN_CON'])
         for r in csv_de(gdb, camada, em, campos, pasta=tmp):
             if r['SIT_ATIV'] != 'AT':
                 continue
@@ -224,6 +242,25 @@ def processa(dist, d, gdb, item, saida, gd_arquivo=None):
             gdc[r['CTMT']] += k; ngdc[r['CTMT']] += 1
             if chave:
                 gdt[r[chave]] += k; ngdt[r[chave]] += 1
+            else:
+                gdmt.append({'pn': r['PN_CON'], 'kw': round(k, 1), 'ct': r['CTMT'], 'ceg': (r.get('CEG_GD') or '').strip()[:20]})
+    log('localização dos', len(prosp), 'consumidores da prospecção e das', len(gdmt), 'minigerações em MT')
+    xy = {}
+    precisa = {p['pn'] for p in prosp} | {g['pn'] for g in gdmt}
+    for r in csv_iter(gdb, 'PONNOT', em, ['COD_ID'], xy=True, pasta=tmp):
+        if r['COD_ID'] in precisa:
+            xy[r['COD_ID']] = (round(num(r['Y']), 6), round(num(r['X']), 6))
+    for p in prosp:
+        p['lat'], p['lon'] = xy.get(p.pop('pn'), (None, None))
+    prosp = [p for p in prosp if p['lat']]
+    for g in gdmt:
+        g['lat'], g['lon'] = xy.get(g.pop('pn'), (None, None))
+    gdmt_sem_local = sum(1 for g in gdmt if g['lat'] is None)
+    gdmt = [g for g in gdmt if g['lat'] is not None]
+    prosp.sort(key=lambda p: -p['mwh'])
+    mercado = {'municipios': {m: {'bt': {k: {'n': v[0], 'gd': v[1]} for k, v in sorted(x['bt'].items())}, 'a': {'n': x['a'][0], 'gd': x['a'][1]}}
+                              for m, x in merc.items()},
+               'prospeccao': prosp, 'criterio': f'sem GD; Grupo A todos; BT com consumo de pelo menos {MERC_BT_MIN_KWH // 1000} MWh/ano (exceto iluminação pública)'}
     trafos, xs, ys = [], [], []
     kva_ct, ntr_ct = Counter(), Counter()
     for r in trs:
@@ -238,6 +275,7 @@ def processa(dist, d, gdb, item, saida, gd_arquivo=None):
         trafos.append({'id': r['COD_ID'], 'lat': round(y, 6), 'lon': round(x, 6), 'kva': kva, 'gd': round(gdt[r['COD_ID']], 1),
                        'ngd': ngdt[r['COD_ID']], 'nuc': nuc[r['COD_ID']], 'dmed': round(ene[r['COD_ID']] / 8760, 1),
                        'ct': r['CTMT'], 'posto': r['POSTO'], 'tipo': r['TIP_TRAFO'], 'mun': r['MUN']})
+    liga_gdmt(gdmt, trafos)
     m = CFG['margem_graus']
     # caixas de cada município (pelos transformadores), para cortar a rede de MT que sai para longe
     caixas = defaultdict(lambda: [999, 999, -999, -999])
@@ -291,11 +329,13 @@ def processa(dist, d, gdb, item, saida, gd_arquivo=None):
             'municipios': d['municipios'], 'bbox': bbox,
             'contagens': {'trafos': len(trafos), 'segmentos_mt': len(feats), 'alimentadores': len(alims), 'subestacoes': len(subs),
                           'gd_unidades': sum(ngdc.values()), 'gd_kw': round(sum(gdc.values())), 'gd_descartadas': descartadas,
-                          'gd_pela_relacao_aneel': pela_lista, 'prospeccao': len(prosp)},
+                          'gd_pela_relacao_aneel': pela_lista, 'prospeccao': len(prosp),
+                          'gd_mt_unidades': len(gdmt), 'gd_mt_kw': round(sum(g['kw'] for g in gdmt)), 'gd_mt_sem_local': gdmt_sem_local,
+                          'gd_mt_com_trafo': sum(1 for g in gdmt if g['tr'])},
             'regras_gd': REGRAS_GD, 'fonte': 'ANEEL – Base de Dados Geográfica da Distribuidora (BDGD), licença ODbL'}
     os.makedirs(saida, exist_ok=True)
     arquivos = {'meta.json': meta, 'trafos.json': trafos, 'alimentadores.json': alims, 'subestacoes.json': list(subs.values()),
-                'mercado.json': mercado}
+                'mercado.json': mercado, 'gdmt.json': gdmt}
     with zipfile.ZipFile(os.path.join(saida, 'pacote.zip'), 'w', zipfile.ZIP_DEFLATED) as z:
         for n, d in arquivos.items():
             z.writestr(n, json.dumps(d, ensure_ascii=False, separators=(',', ':')))

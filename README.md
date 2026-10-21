@@ -26,10 +26,13 @@ O cadastro descobre sozinho as distribuidoras novas.
 - **Falhas:** uma distribuidora com problema não impede as outras. O passo "Falhas" deixa a execução vermelha para avisar.
 
 ## O que vai no pacote (versão 2)
+Arquivos e campos novos entram sem mudar a versão: o cadastro ignora o que não conhece (`gdmt.json` desde out/2026, lido pelo cadastro 1.38.2).
 | Arquivo | Conteúdo |
 |---|---|
 | `meta.json` | Distribuidora, referência da BDGD, item da ANEEL, data do processamento, municípios, contagens e regra de limpeza da GD |
-| `trafos.json` | Transformadores: posição, kVA, GD ativa ligada (kW), nº de GD, consumidores BT, demanda média, alimentador e município |
+| `trafos.json` | Transformadores: posição, kVA, GD ativa ligada em BT (kW), nº de GD, consumidores BT, demanda média, alimentador e município; `gdmt`/`ngdmt`: minigeração em MT associada (transformador particular) |
+| `gdmt.json` | Minigerações em média tensão (camada UGMT): posição do ponto de conexão, kW (pela relação de GD da ANEEL), alimentador, CEG e o transformador sem consumidor de BT mais próximo, até 150 m (`tr`, `tr_m`). A BDGD liga a minigeração ao alimentador, não a um transformador; sem isso, o transformador particular da usina aparecia com 0 kW de GD |
+| `mercado.json` | Consumidores por município e classe e lista de prospecção (ver Mercado) |
 | `alimentadores.json` | Alimentadores: nome, subestação, energia anual, GD ligada, transformadores e kVA |
 | `subestacoes.json` | Subestações: código, nome e posição |
 | `mt.ndjson` | Trechos de média tensão simplificados, um por linha: `[alimentador, fases, condutor (ex.: AL4AWG), [[lon, lat], ...]]`. Fica linha a linha para o cadastro importar sem estourar a memória da hospedagem |
