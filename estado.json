@@ -3,7 +3,7 @@
   "item_id": "c48b4751afdf41c29923986308e15f44",
   "titulo": "Neoenergia_Cosern_40_2025-12-31_V11_20260823-1857",
   "referencia": "2025-12-31",
-  "processado_em": "2026-10-21T12:08:25Z",
+  "processado_em": "2026-10-22T02:40:22Z",
   "contagens": {
    "trafos": 19920,
    "segmentos_mt": 163254,
@@ -17,14 +17,18 @@
    "gd_mt_unidades": 928,
    "gd_mt_kw": 123894,
    "gd_mt_sem_local": 0,
-   "gd_mt_com_trafo": 900
+   "gd_mt_com_trafo": 900,
+   "postes_mt": 126551,
+   "derivacoes": 310,
+   "chaves_mt": 11460,
+   "trechos_at": 14637
   }
  },
  "enel-ce": {
   "item_id": "c57f0c3389a94f21af1e0df99eca2b4f",
   "titulo": "Enel_CE_39_2025-12-31_V11_20260826-0043",
   "referencia": "2025-12-31",
-  "processado_em": "2026-10-21T12:11:19Z",
+  "processado_em": "2026-10-22T02:42:58Z",
   "contagens": {
    "trafos": 14995,
    "segmentos_mt": 152189,
@@ -38,7 +42,11 @@
    "gd_mt_unidades": 478,
    "gd_mt_kw": 67308,
    "gd_mt_sem_local": 43,
-   "gd_mt_com_trafo": 47
+   "gd_mt_com_trafo": 47,
+   "postes_mt": 62588,
+   "derivacoes": 0,
+   "chaves_mt": 22897,
+   "trechos_at": 14891
   }
  }
 }
