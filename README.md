@@ -26,7 +26,7 @@ O cadastro descobre sozinho as distribuidoras novas.
 - **Falhas:** uma distribuidora com problema não impede as outras. O passo "Falhas" deixa a execução vermelha para avisar.
 
 ## O que vai no pacote (versão 2)
-Arquivos e campos novos entram sem mudar a versão: o cadastro ignora o que não conhece (`gdmt.json` desde out/2026, lido pelo cadastro 1.38.2).
+Arquivos e campos novos entram sem mudar a versão: o cadastro ignora o que não conhece (`gdmt.json` desde out/2026, lido pelo cadastro 1.38.2; `postes.ndjson`, `chaves.json` e `at.ndjson` desde out/2026, lidos pelo cadastro 1.42).
 | Arquivo | Conteúdo |
 |---|---|
 | `meta.json` | Distribuidora, referência da BDGD, item da ANEEL, data do processamento, municípios, contagens e regra de limpeza da GD |
@@ -36,6 +36,9 @@ Arquivos e campos novos entram sem mudar a versão: o cadastro ignora o que não
 | `alimentadores.json` | Alimentadores: nome, subestação, energia anual, GD ligada, transformadores e kVA |
 | `subestacoes.json` | Subestações: código, nome e posição |
 | `mt.ndjson` | Trechos de média tensão simplificados, um por linha: `[alimentador, fases, condutor (ex.: AL4AWG), [[lon, lat], ...]]`. Fica linha a linha para o cadastro importar sem estourar a memória da hospedagem |
+| `postes.ndjson` | Postes e derivações da rede de MT (pontos de conexão dos trechos de MT: `PN_CON_1/2` do SSDMT, camada PONNOT), um por linha: `[lat, lon, altura (m), esforço (código BDGD), material, 'D' = derivação, estrutura (DT, CI…)]`. Desde out/2026 (cadastro 1.42): mapa e planta de situação do gerador de projetos |
+| `chaves.json` | Chaves de MT (UNSEMT): `[lat, lon, tipo (código BDGD), A = normalmente aberta / F = fechada, elo fusível, alimentador]` |
+| `at.ndjson` | Linhas de alta tensão (SSDAT) na área dos municípios, simplificadas: `[circuito, [[lon, lat], ...]]` |
 
 ## Tarifas e bandeiras (`tarifas.py`, workflow "Tarifas e bandeiras")
 - **Quando roda:** todo dia. Baixa dos dados abertos da ANEEL as tarifas homologadas, o componente **TUSD Fio B** (componentes tarifárias) e o acionamento das **bandeiras**.

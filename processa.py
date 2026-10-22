@@ -9,7 +9,7 @@ Para cada distribuidora:
    meta.json, trafos.json, alimentadores.json, subestacoes.json, mercado.json, gdmt.json, mt.ndjson -> pacote.zip
    Transformadores com potência, GD já ligada (limpa), consumidores e energia; rede de MT simplificada.
    gdmt.json: minigerações em MT (local, kW, alimentador, CEG) e o transformador particular mais próximo; o transformador
-   ganha 'gdmt'/'ngdmt'. Arquivos novos no pacote não mudam a versão: o cadastro antigo ignora o que não conhece.
+   ganha 'gdmt'/'ngdmt'. postes.ndjson (postes e derivações da rede de MT), chaves.json (chaves de MT) e at.ndjson (linhas de AT). Arquivos novos no pacote não mudam a versão: o cadastro antigo ignora o que não conhece.
 Depois grava saida/indice.json com a situação de todas.
 
 Uso: python3 processa.py [--dist cosern] [--forcar] [--gdb caminho.gdb] [--saida pasta]
@@ -315,6 +315,46 @@ def processa(dist, d, gdb, item, saida, gd_arquivo=None):
         ct_usados.add(p['CTMT'])
         feats.append({'type': 'Feature', 'properties': {'c': p['CTMT'], 'f': p['FAS_CON'], 'k': cond.get(p['TIP_CND'], p['TIP_CND'])},
                       'geometry': {'type': 'LineString', 'coordinates': [[round(a, 6), round(b, 6)] for a, b, *_ in g['coordinates']]}})
+    # postes da rede de MT (os pontos de conexão dos trechos: PN_CON_1/2 do SSDMT) e as derivações: para a planta de situação
+    log('postes e chaves de MT')
+    pn_mt = set()
+    filtro_ct = 'CTMT IN (' + ','.join("'" + c.replace("'", "''") + "'" for c in cts_sel) + ')'
+    for r in csv_iter(gdb, 'SSDMT', filtro_ct, ['PN_CON_1', 'PN_CON_2'], pasta=tmp):
+        pn_mt.add(r['PN_CON_1']); pn_mt.add(r['PN_CON_2'])
+    dentro = lambda x, y: any(c[0] <= x <= c[2] and c[1] <= y <= c[3] for c in caixas)
+    postes = []
+    for r in csv_iter(gdb, 'PONNOT', em + " AND TIP_PN IN ('POS', 'DRV')", ['COD_ID', 'TIP_PN', 'ALT', 'ESF', 'MAT', 'ESTR'], xy=True, pasta=tmp):
+        if r['COD_ID'] not in pn_mt:
+            continue
+        x, y = num(r['X']), num(r['Y'])
+        if not (x and y) or not dentro(x, y):
+            continue
+        # [lat, lon, altura (m), esforço (código da BDGD), material, 'D' = derivação, estrutura (DT, CC…)]
+        postes.append([round(y, 6), round(x, 6), (r['ALT'] or '').strip()[:3], (r['ESF'] or '').strip()[:3], (r['MAT'] or '').strip()[:2], 'D' if r['TIP_PN'] == 'DRV' else '',
+                       (r['ESTR'] or '').strip()[:2]])
+    chaves = []
+    for r in csv_iter(gdb, 'UNSEMT', filtro_ct, ['COD_ID', 'TIP_UNID', 'P_N_OPE', 'CAP_ELO', 'CTMT', 'SIT_ATIV'], xy=True, pasta=tmp):
+        if r['SIT_ATIV'] not in ('AT', ''):
+            continue
+        x, y = num(r['X']), num(r['Y'])
+        if not (x and y) or not dentro(x, y):
+            continue
+        elo = (r['CAP_ELO'] or '').strip()
+        # [lat, lon, tipo (código da BDGD), A = normalmente aberta | F = fechada, elo fusível ('' sem elo), alimentador]
+        chaves.append([round(y, 6), round(x, 6), (r['TIP_UNID'] or '').strip()[:3], (r['P_N_OPE'] or '').strip()[:1], '' if elo in ('', '0') else elo[:5], r['CTMT']])
+    # linhas de alta tensão (subtransmissão) perto dos municípios, simplificadas
+    log('linhas de AT')
+    out_at = os.path.join(tmp, 'at.geojson')
+    at = []
+    try:
+        ogr('-f', 'GeoJSON', out_at, gdb, 'SSDAT', '-spat', *map(str, bbox), '-select', 'CTAT,TIP_CND', '-simplify', str(CFG['simplificar_graus']),
+            '-explodecollections', '-lco', 'COORDINATE_PRECISION=6')
+        for f in json.load(open(out_at, encoding='utf-8'))['features']:
+            g = f['geometry']
+            if g and g['type'] == 'LineString' and len(g['coordinates']) >= 2:
+                at.append([f['properties'].get('CTAT') or '', [[round(a, 6), round(b, 6)] for a, b, *_ in g['coordinates']]])
+    except subprocess.CalledProcessError as e:
+        log('linhas de AT: sem camada SSDAT utilizável', e.stderr[-200:] if e.stderr else '')
     alims = []
     for c in sorted(ct_usados | set(kva_ct)):
         r = cts.get(c)
@@ -331,17 +371,21 @@ def processa(dist, d, gdb, item, saida, gd_arquivo=None):
                           'gd_unidades': sum(ngdc.values()), 'gd_kw': round(sum(gdc.values())), 'gd_descartadas': descartadas,
                           'gd_pela_relacao_aneel': pela_lista, 'prospeccao': len(prosp),
                           'gd_mt_unidades': len(gdmt), 'gd_mt_kw': round(sum(g['kw'] for g in gdmt)), 'gd_mt_sem_local': gdmt_sem_local,
-                          'gd_mt_com_trafo': sum(1 for g in gdmt if g['tr'])},
+                          'gd_mt_com_trafo': sum(1 for g in gdmt if g['tr']),
+                          'postes_mt': len(postes), 'derivacoes': sum(1 for p in postes if p[5] == 'D'), 'chaves_mt': len(chaves), 'trechos_at': len(at)},
             'regras_gd': REGRAS_GD, 'fonte': 'ANEEL – Base de Dados Geográfica da Distribuidora (BDGD), licença ODbL'}
     os.makedirs(saida, exist_ok=True)
     arquivos = {'meta.json': meta, 'trafos.json': trafos, 'alimentadores.json': alims, 'subestacoes.json': list(subs.values()),
-                'mercado.json': mercado, 'gdmt.json': gdmt}
+                'mercado.json': mercado, 'gdmt.json': gdmt, 'chaves.json': chaves}
     with zipfile.ZipFile(os.path.join(saida, 'pacote.zip'), 'w', zipfile.ZIP_DEFLATED) as z:
         for n, d in arquivos.items():
             z.writestr(n, json.dumps(d, ensure_ascii=False, separators=(',', ':')))
         # uma linha por trecho: [alimentador, fases, condutor, [[lon, lat], ...]]
         z.writestr('mt.ndjson', ''.join(json.dumps([f['properties']['c'], f['properties']['f'], f['properties']['k'], f['geometry']['coordinates']],
                                                    ensure_ascii=False, separators=(',', ':')) + '\n' for f in feats))
+        # postes e linhas de AT também linha a linha (são muitos)
+        z.writestr('postes.ndjson', ''.join(json.dumps(p, ensure_ascii=False, separators=(',', ':')) + '\n' for p in postes))
+        z.writestr('at.ndjson', ''.join(json.dumps(a, ensure_ascii=False, separators=(',', ':')) + '\n' for a in at))
     json.dump(meta, open(os.path.join(saida, 'meta.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     shutil.rmtree(tmp, ignore_errors=True)
     log('pacote', round(os.path.getsize(os.path.join(saida, 'pacote.zip')) / 1e6, 2), 'MB', meta['contagens'])
